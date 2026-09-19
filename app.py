@@ -8,6 +8,7 @@ That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 import sqlite3
 
 from flask import Flask, g, jsonify, request
+from werkzeug.security import check_password_hash, generate_password_hash
 
 DATABASE = "recipes.db"
 
@@ -42,6 +43,76 @@ def recipe_to_dict(row):
 @app.get("/")
 def hello():
     return jsonify({"message": "Recipe Box API", "recipes": "/recipes"})
+
+
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True)
+
+    # basic shape check
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be JSON object"}), 400
+
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+
+    # required fields: non-empty strings
+    if (
+        not isinstance(username, str) or username.strip() == "" or
+        not isinstance(email, str) or email.strip() == "" or
+        not isinstance(password, str) or password.strip() == ""
+    ):
+        return jsonify({"error": "username, email, and password are required"}), 400
+
+    password_hash = generate_password_hash(password)
+
+    db = get_db()
+    try:
+        db.execute(
+            """
+            INSERT INTO users (username, email, password_hash)
+            VALUES (?, ?, ?)
+            """,
+            (username, email, password_hash),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        # username or email already exists
+        return jsonify({"error": "username or email already in use"}), 409
+
+    # IMPORTANT: do NOT send password or password_hash back
+    return jsonify({
+        "id": db.execute("SELECT last_insert_rowid()").fetchone()[0],
+        "username": username,
+        "email": email,
+    }), 201
+
+
+@app.post("/login")
+def login():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be JSON object"}), 400
+
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"error": "username and password are required"}), 400
+
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM users WHERE username = ?", (username,)
+    ).fetchone()
+
+    if row and check_password_hash(row["password_hash"], password):
+        return jsonify({
+            "id": row["id"],
+            "username": row["username"]
+        }), 200
+
+    return jsonify({"error": "Invalid credentials"}), 401
 
 
 @app.get("/recipes")
