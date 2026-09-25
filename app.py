@@ -1,17 +1,21 @@
-"""Recipe Box API — BE104 course skeleton.
+"""Recipe Box API - BE104 course skeleton.
 
-A working Flask + SQLite CRUD API for recipes. It stores data perfectly —
+A working Flask + SQLite CRUD API for recipes. It stores data perfectly -
 and it trusts everyone. There is no authentication and no authorization yet.
 That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 """
 
+from datetime import datetime, timedelta
+import os
 import sqlite3
 
+from dotenv import load_dotenv  # NEW
+import jwt
 from flask import Flask, g, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
-
 DATABASE = "recipes.db"
-
+JWT_SECRET = os.environ.get("JWT_SECRET")
+print("JWT_SECRET is set:", bool(JWT_SECRET))
 app = Flask(__name__)
 
 
@@ -45,23 +49,21 @@ def hello():
     return jsonify({"message": "Recipe Box API", "recipes": "/recipes"})
 
 
-@app.route("/register", methods=["POST"])
+@app.post("/register")
 def register():
     data = request.get_json(silent=True)
 
-    # basic shape check
     if not isinstance(data, dict):
-        return jsonify({"error": "Request body must be JSON object"}), 400
+        return jsonify({"error": "Request body must be a JSON object"}), 400
 
     username = data.get("username")
     email = data.get("email")
     password = data.get("password")
 
-    # required fields: non-empty strings
     if (
-        not isinstance(username, str) or username.strip() == "" or
-        not isinstance(email, str) or email.strip() == "" or
-        not isinstance(password, str) or password.strip() == ""
+        not isinstance(username, str) or not username.strip() or
+        not isinstance(email, str) or not email.strip() or
+        not isinstance(password, str) or not password.strip()
     ):
         return jsonify({"error": "username, email, and password are required"}), 400
 
@@ -69,23 +71,21 @@ def register():
 
     db = get_db()
     try:
-        db.execute(
+        cursor = db.execute(
             """
             INSERT INTO users (username, email, password_hash)
             VALUES (?, ?, ?)
             """,
-            (username, email, password_hash),
+            (username.strip(), email.strip(), password_hash),
         )
         db.commit()
     except sqlite3.IntegrityError:
-        # username or email already exists
-        return jsonify({"error": "username or email already in use"}), 409
+        return jsonify({"error": "username or email already exists"}), 409
 
-    # IMPORTANT: do NOT send password or password_hash back
     return jsonify({
-        "id": db.execute("SELECT last_insert_rowid()").fetchone()[0],
-        "username": username,
-        "email": email,
+        "id": cursor.lastrowid,
+        "username": username.strip(),
+        "email": email.strip()
     }), 201
 
 
@@ -93,7 +93,7 @@ def register():
 def login():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return jsonify({"error": "Request body must be JSON object"}), 400
+        return jsonify({"error": "Request body must be a JSON object"}), 400
 
     username = data.get("username")
     password = data.get("password")
@@ -102,14 +102,27 @@ def login():
         return jsonify({"error": "username and password are required"}), 400
 
     db = get_db()
-    row = db.execute(
-        "SELECT * FROM users WHERE username = ?", (username,)
+    user = db.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        (username,)
     ).fetchone()
 
-    if row and check_password_hash(row["password_hash"], password):
+    if user and check_password_hash(user["password_hash"], password):
+        # Build token payload (claims)
+        payload = {
+            "sub": user["id"],               # subject = user ID
+            "username": user["username"],    # convenience claim
+            "exp": datetime.utcnow() + timedelta(hours=1),  # expires in 1 hour
+        }
+
+        # Sign token
+        token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+        # Return identity + token
         return jsonify({
-            "id": row["id"],
-            "username": row["username"]
+            "id": user["id"],
+            "username": user["username"],
+            "token": token,
         }), 200
 
     return jsonify({"error": "Invalid credentials"}), 401
