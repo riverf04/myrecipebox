@@ -8,14 +8,16 @@ CREATE TABLE IF NOT EXISTS recipes (
     title TEXT NOT NULL UNIQUE,
     ingredients TEXT NOT NULL,
     instructions TEXT NOT NULL DEFAULT '',
-    is_public INTEGER NOT NULL DEFAULT 1
+    is_public INTEGER NOT NULL DEFAULT 1,
+    owner_id INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user'
 );
 """
 
@@ -25,18 +27,21 @@ SEED = [
         "eggs, tomatoes, peppers, onion, cumin, paprika",
         "Simmer the sauce, crack in the eggs, cover until just set.",
         1,
+        1,  # owner_id
     ),
     (
         "Overnight oats",
         "rolled oats, milk, yogurt, chia seeds, honey",
         "Stir everything together and refrigerate overnight.",
         1,
+        1,  # owner_id
     ),
     (
         "Secret family hot sauce",
         "habaneros, garlic, vinegar, a secret ingredient",
         "If we wrote it down here, it wouldn't be a secret.",
         0,
+        1,  # owner_id
     ),
 ]
 
@@ -45,8 +50,8 @@ connection.executescript(SCHEMA)
 existing = connection.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
 if existing == 0:
     connection.executemany(
-        "INSERT INTO recipes (title, ingredients, instructions, is_public)"
-        " VALUES (?, ?, ?, ?)",
+        "INSERT INTO recipes (title, ingredients, instructions, is_public, owner_id)"
+        " VALUES (?, ?, ?, ?, ?)",
         SEED,
     )
     connection.commit()

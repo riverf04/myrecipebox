@@ -1,8 +1,6 @@
 """Recipe Box API - BE104 course skeleton.
 
-A working Flask + SQLite CRUD API for recipes. It stores data perfectly -
-and it trusts everyone. There is no authentication and no authorization yet.
-That is the point: you will add both, lesson by lesson, in Units 2 and 3.
+A working Flask + SQLite CRUD API for recipes.
 """
 
 from datetime import datetime, timedelta
@@ -13,7 +11,6 @@ from dotenv import load_dotenv
 import jwt
 from flask import Flask, g, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
-
 
 load_dotenv()
 
@@ -108,22 +105,20 @@ def login():
 
     db = get_db()
     user = db.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        "SELECT id, username, password_hash, role FROM users WHERE username = ?",
         (username,)
     ).fetchone()
 
     if user and check_password_hash(user["password_hash"], password):
-        # Build token payload (claims)
         payload = {
-            "sub": str(user["id"]),          # subject must be a string
+            "sub": str(user["id"]),
             "username": user["username"],
-            "exp": datetime.utcnow() + timedelta(seconds=30),  # expires in 30 seconds
+            "role": user["role"],
+            "exp": datetime.utcnow() + timedelta(minutes=30),
         }
 
-        # Sign token
         token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
-        # Return identity + token
         return jsonify({
             "id": user["id"],
             "username": user["username"],
@@ -165,7 +160,7 @@ def create_recipe():
     except jwt.InvalidTokenError:
         return jsonify({"error": "invalid token"}), 401
 
-    user_id = payload.get("sub")
+    user_id = int(payload.get("sub")) if payload.get("sub") else None
     username = payload.get("username")
 
     data = request.get_json(silent=True)
@@ -203,13 +198,25 @@ def update_recipe(recipe_id):
 
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-    except jwt.ExpiredSignatureError:
+        user_id = int(payload["sub"])
+        user_role = payload.get("role", "user")
+    except (jwt.ExpiredSignatureError):
         return jsonify({"error": "Token has expired. Please log in again."}), 401
-    except jwt.InvalidTokenError:
+    except (jwt.InvalidTokenError, KeyError, ValueError):
         return jsonify({"error": "invalid token"}), 401
 
-    user_id = payload.get("sub")
-    username = payload.get("username")
+    db = get_db()
+    recipe = db.execute(
+        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
+    ).fetchone()
+
+    if recipe is None:
+        return jsonify({"error": "recipe not found"}), 404
+
+    owner_id = recipe["owner_id"] if "owner_id" in recipe.keys() else recipe["user_id"] if "user_id" in recipe.keys() else None
+
+    if (owner_id is None or int(owner_id) != user_id) and user_role != "admin":
+        return jsonify({"error": "Forbidden"}), 403
 
     data = request.get_json(silent=True)
     if not data:
@@ -225,7 +232,7 @@ def update_recipe(recipe_id):
     if not fields:
         return jsonify({"error": "nothing to update"}), 400
     values.append(recipe_id)
-    db = get_db()
+
     try:
         cur = db.execute(
             f"UPDATE recipes SET {', '.join(fields)} WHERE id = ?", values
@@ -233,8 +240,7 @@ def update_recipe(recipe_id):
         db.commit()
     except sqlite3.IntegrityError:
         return jsonify({"error": "a recipe with that title already exists"}), 409
-    if cur.rowcount == 0:
-        return jsonify({"error": "recipe not found"}), 404
+
     row = db.execute(
         "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
     ).fetchone()
@@ -252,19 +258,28 @@ def delete_recipe(recipe_id):
 
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user_id = int(payload["sub"])
+        user_role = payload.get("role", "user")
     except jwt.ExpiredSignatureError:
         return jsonify({"error": "Token has expired. Please log in again."}), 401
-    except jwt.InvalidTokenError:
+    except (jwt.InvalidTokenError, KeyError, ValueError):
         return jsonify({"error": "invalid token"}), 401
 
-    user_id = payload.get("sub")
-    username = payload.get("username")
-
     db = get_db()
-    cur = db.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
-    db.commit()
-    if cur.rowcount == 0:
+    recipe = db.execute(
+        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
+    ).fetchone()
+
+    if recipe is None:
         return jsonify({"error": "recipe not found"}), 404
+
+    owner_id = recipe["owner_id"] if "owner_id" in recipe.keys() else recipe["user_id"] if "user_id" in recipe.keys() else None
+
+    if (owner_id is None or int(owner_id) != user_id) and user_role != "admin":
+        return jsonify({"error": "Forbidden"}), 403
+
+    db.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
+    db.commit()
     return "", 204
 
 
