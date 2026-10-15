@@ -1,8 +1,3 @@
-"""Recipe Box API - BE104 course skeleton.
-
-A working Flask + SQLite CRUD API for recipes.
-"""
-
 from datetime import datetime, timedelta
 from functools import wraps
 import os
@@ -48,7 +43,13 @@ def recipe_to_dict(row):
 
 
 def ensure_owner_or_admin(recipe, user_id, user_role):
-    owner_id = recipe["owner_id"] if "owner_id" in recipe.keys() else recipe["user_id"] if "user_id" in recipe.keys() else None
+    owner_id = (
+        recipe["owner_id"]
+        if "owner_id" in recipe.keys()
+        else recipe["user_id"]
+        if "user_id" in recipe.keys()
+        else None
+    )
 
     if (owner_id is None or int(owner_id) != user_id) and user_role != "admin":
         return jsonify({"error": "Forbidden"}), 403
@@ -64,7 +65,7 @@ def token_required(f):
         if not auth_header.startswith("Bearer "):
             return jsonify({"error": "missing or invalid Authorization header"}), 401
 
-        token = auth_header[len("Bearer "):].strip()
+        token = auth_header[len("Bearer ") :].strip()
 
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
@@ -76,6 +77,7 @@ def token_required(f):
             return jsonify({"error": "invalid token"}), 401
 
         return f(*args, **kwargs)
+
     return decorated
 
 
@@ -96,9 +98,12 @@ def register():
     password = data.get("password")
 
     if (
-        not isinstance(username, str) or not username.strip() or
-        not isinstance(email, str) or not email.strip() or
-        not isinstance(password, str) or not password.strip()
+        not isinstance(username, str)
+        or not username.strip()
+        or not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(password, str)
+        or not password.strip()
     ):
         return jsonify({"error": "username, email, and password are required"}), 400
 
@@ -117,11 +122,16 @@ def register():
     except sqlite3.IntegrityError:
         return jsonify({"error": "username or email already exists"}), 409
 
-    return jsonify({
-        "id": cursor.lastrowid,
-        "username": username.strip(),
-        "email": email.strip()
-    }), 201
+    return (
+        jsonify(
+            {
+                "id": cursor.lastrowid,
+                "username": username.strip(),
+                "email": email.strip(),
+            }
+        ),
+        201,
+    )
 
 
 @app.post("/login")
@@ -139,7 +149,7 @@ def login():
     db = get_db()
     user = db.execute(
         "SELECT id, username, password_hash, role FROM users WHERE username = ?",
-        (username,)
+        (username,),
     ).fetchone()
 
     if user and check_password_hash(user["password_hash"], password):
@@ -152,11 +162,16 @@ def login():
 
         token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
-        return jsonify({
-            "id": user["id"],
-            "username": user["username"],
-            "token": token,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "id": user["id"],
+                    "username": user["username"],
+                    "token": token,
+                }
+            ),
+            200,
+        )
 
     return jsonify({"error": "Invalid credentials"}), 401
 
@@ -169,9 +184,11 @@ def list_recipes():
 
 @app.get("/recipes/<int:recipe_id>")
 def get_recipe(recipe_id):
-    row = get_db().execute(
-        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
-    ).fetchone()
+    row = (
+        get_db()
+        .execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
+        .fetchone()
+    )
     if row is None:
         return jsonify({"error": "recipe not found"}), 404
     return jsonify(recipe_to_dict(row))
@@ -198,9 +215,10 @@ def create_recipe():
         db.commit()
     except sqlite3.IntegrityError:
         return jsonify({"error": "a recipe with that title already exists"}), 409
-    row = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (cur.lastrowid,)
-    ).fetchone()
+    row = (
+        db.execute("SELECT * FROM recipes WHERE id = ?", (cur.lastrowid,))
+        .fetchone()
+    )
     return jsonify(recipe_to_dict(row)), 201
 
 
@@ -211,9 +229,10 @@ def update_recipe(recipe_id):
     user_role = g.user_role
 
     db = get_db()
-    recipe = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
-    ).fetchone()
+    recipe = (
+        db.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
+        .fetchone()
+    )
 
     if recipe is None:
         return jsonify({"error": "recipe not found"}), 404
@@ -245,9 +264,10 @@ def update_recipe(recipe_id):
     except sqlite3.IntegrityError:
         return jsonify({"error": "a recipe with that title already exists"}), 409
 
-    row = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
-    ).fetchone()
+    row = (
+        db.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
+        .fetchone()
+    )
     return jsonify(recipe_to_dict(row))
 
 
@@ -258,9 +278,10 @@ def delete_recipe(recipe_id):
     user_role = g.user_role
 
     db = get_db()
-    recipe = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
-    ).fetchone()
+    recipe = (
+        db.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
+        .fetchone()
+    )
 
     if recipe is None:
         return jsonify({"error": "recipe not found"}), 404
@@ -272,7 +293,3 @@ def delete_recipe(recipe_id):
     db.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
     db.commit()
     return "", 204
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
